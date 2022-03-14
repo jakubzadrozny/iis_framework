@@ -86,7 +86,9 @@ class RegionDatasetWithInfo(torch.utils.data.Dataset):
             for layer_ind in range(all_masks.shape[-1]):
                 visualize(all_masks[:, :, layer_ind], f"layer_{layer_ind}")
         target_region = self.region_selector(image, all_masks, info)
-        image, target_region = self.augmentator(image, target_region)
+        aug = self.augmentator(image=image, mask=target_region)
+        image = aug['image']
+        target_region = aug['mask']
         return image, target_region, info
 
     def __len__(self):
@@ -131,7 +133,8 @@ def my_collate_subfn(batch):
     elem = batch[0]
     elem_type = type(elem)
     if isinstance(elem, collections.abc.Mapping):  # my change
-        return [d for d in batch]
+        out = [d for d in batch]
+        return out
     elif isinstance(elem, torch.Tensor):
         out = None
         if torch.utils.data.get_worker_info() is not None:

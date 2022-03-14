@@ -2,6 +2,9 @@ import torch
 import numpy as np
 import copy
 import cv2
+import skimage
+
+from .region_selector import compute_area
 
 
 def np_simplest_disk(radius):
@@ -106,7 +109,7 @@ def get_point_from_mask(mask, hard_thresh=1e-6):
 
 def positive_erode(mask, erode_iters=15):
     """Get smaller mask"""
-    mask = np.array(mask.cpu())
+    mask = np.array(mask)
     kernel = np.ones((3, 3), dtype=np.uint8)
     eroded_mask = cv2.erode(
         mask.astype(np.uint8), kernel, iterations=erode_iters
@@ -211,6 +214,20 @@ def get_positive_click(mask, near_border=False, uniform_probs=False, erode_iters
         )  # get weighted from center region
 
 
+def get_error_click(gt_mask, pred_mask, erode_iters=15, largest_only=False):
+    mask = np.logical_xor(gt_mask, pred_mask)
+    if mask.sum() == 0:
+        return None
+    if largest_only:
+        labels, num_labels = skimage.morphology.label(mask, connectivity=1, return_num=True)
+        areas = [compute_area(labels == i) for i in range(1, num_labels+1)]
+        id = np.argmax(areas) + 1
+        mask = labels == id
+    mask, _ = safe_erode(mask, erode_iters, thresh=0.5)
+    point = get_point_from_mask(mask, hard_thresh=0)
+    return point
+
+
 norm_fn = lambda x: (x - x.min()) / (x.max() - x.min())
 
 
@@ -236,42 +253,52 @@ def visualize_clicks(image, mask, alpha, pc_list, nc_list, name):
     plt.close()
 
 
-# get_positive_clicks can be made faster by eroding just one time
 def get_positive_clicks_batch(
-    n, masks, near_border=False, uniform_probs=False, erode_iters=15
+    ns, masks, **kwargs
 ):
-    if n == 0:
-        return [[] for _ in range(masks.shape[0])]
-    elif n < 0:
-        raise ValueError(f'`n` should be positive but is {n}')
-    else:
-        return [
-            [
-                get_positive_click(
-                    mask[0],
-                    near_border=near_border,
-                    uniform_probs=uniform_probs,
-                    erode_iters=erode_iters,
-                )
-                for _ in range(n)
-            ]
-            for mask in masks  
-        ]
+    n_masks = len(masks)
+    if isinstance(ns, int):
+        ns = [ns] * n_masks
+    
+    all_clicks = []
+    for n, mask in zip(ns, masks):
+        if n == 0:
+            clicks = []
+        elif n < 0:
+            raise ValueError(f'`n` should be positive but is {n}')
+        else:
+            clicks = list(filter(
+                lambda x: x is not None,
+                [
+                    get_positive_click(
+                        mask[0],
+                        **kwargs
+                    )
+                    for _ in range(n)
+                ]
+            ))
+        all_clicks.append(clicks)
+    return all_clicks
 
 
-
-def get_negative_clicks(n, mask, near_border, uniform_probs, dilate_iters):
-    raise NotImplementedError(
-        "We will use `get_positive_clicks` from false positive region."
-    )
-    ncs = [
-        get_negative_click(
-            mask,
-            near_border=near_border,
-            uniform_probs=uniform_probs,
-            dilate_iters=dilate_iters,
-        )
-        for _ in range(n)
-    ]
-    return list(filter(lambda x: x is not None, ncs))  # remove None elements
-
+def get_error_clicks_batch(ns, gt_masks, pred_masks, **kwargs):
+    n_masks = len(gt_masks)
+    if isinstance(ns, int):
+        ns = [ns] * n_masks
+    
+    all_pos_clicks = []
+    all_neg_clicks = []
+    for n, gt_mask, pred_mask in zip(ns, gt_masks, pred_masks):
+        pos_clicks = []
+        neg_clicks = []
+        for _ in range(n):
+            click = get_error_click(gt_mask, pred_mask, **kwargs)
+            if click is None:
+                pass
+            elif gt_mask[tuple(click)] == 1:
+                pos_clicks.append(click)
+            else:
+                neg_clicks.append(click)
+        all_pos_clicks.append(pos_clicks)
+        all_neg_clicks.append(neg_clicks)
+    return all_pos_clicks, all_neg_clicks

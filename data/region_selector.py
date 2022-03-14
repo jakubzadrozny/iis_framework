@@ -51,7 +51,7 @@ def is_connected(mask):
     return skimage.morphology.label(mask).max() == 1  # only one class
 
 def compute_area(mask):
-    assert mask.min() == 0 and mask.max() == 1
+    assert mask.min() == 0 and mask.max() <= 1
     return np.sum(mask == 1)
 
 def get_subregions_as_layers(mask):
