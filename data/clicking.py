@@ -81,7 +81,7 @@ def test_disk_mask_from_coords():
     plt.savefig("temp.png")
 
 
-def get_d_prob_map(mask, hard_thresh=1e-6):
+def get_d_prob_map(mask, hard_thresh=1e-6, t=1.0):
     """Get probability map depending on l2 distance to background.
     `hard_thresh` is the excluded radius in hard mode.
     If `hard_thresh=0` then return normalized distance map
@@ -89,9 +89,11 @@ def get_d_prob_map(mask, hard_thresh=1e-6):
     """
     padded_mask = np.pad(mask, ((1, 1), (1, 1)), "constant")
     dt = cv2.distanceTransform(padded_mask.astype(np.uint8), cv2.DIST_L2, 0)[1:-1, 1:-1]
-    inner_mask = dt / dt.max()
-    inner_mask = hard_thresh < inner_mask if (0 < hard_thresh) else inner_mask
-    return inner_mask / max(inner_mask.sum(), 1e-6)
+    dt = mask * np.exp(t*dt)
+    Z = np.sum(dt)
+    probs = dt / Z
+    weights = hard_thresh < probs if (0 < hard_thresh) else probs
+    return weights
 
 
 def sample_point(prob_map):
@@ -101,9 +103,9 @@ def sample_point(prob_map):
     return np.array(click_coords)
 
 
-def get_point_from_mask(mask, hard_thresh=1e-6):
+def get_point_from_mask(mask, hard_thresh=1e-6, t=1.0):
     """Sample point from inside mask"""
-    prob_map = get_d_prob_map(mask, hard_thresh=hard_thresh)
+    prob_map = get_d_prob_map(mask, hard_thresh=hard_thresh, t=t)
     return sample_point(prob_map)
 
 
@@ -214,17 +216,9 @@ def get_positive_click(mask, near_border=False, uniform_probs=False, erode_iters
         )  # get weighted from center region
 
 
-def get_error_click(gt_mask, pred_mask, erode_iters=15, largest_only=False):
+def get_error_click(gt_mask, pred_mask, t=1.0):
     mask = np.logical_xor(gt_mask, pred_mask)
-    if mask.sum() == 0:
-        return None
-    if largest_only:
-        labels, num_labels = skimage.morphology.label(mask, connectivity=1, return_num=True)
-        areas = [compute_area(labels == i) for i in range(1, num_labels+1)]
-        id = np.argmax(areas) + 1
-        mask = labels == id
-    mask, _ = safe_erode(mask, erode_iters, thresh=0.5)
-    point = get_point_from_mask(mask, hard_thresh=0)
+    point = get_point_from_mask(mask, hard_thresh=0, t=t)
     return point
 
 
