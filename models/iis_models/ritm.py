@@ -94,7 +94,6 @@ class HRNetISModel(nn.Module):
 
 
     @classmethod
-    @property
     def default_params(cls):
         params = dict()
         for mclass in HRNetISModel.mro():
@@ -115,7 +114,7 @@ class HRNetISModel(nn.Module):
         config = ckpt['config']
         state_dict = ckpt['state_dict']
 
-        default_params = cls.default_params
+        default_params = cls.default_params()
         model_args = dict()
         for pname, param in config['params'].items():
             value = param['value']
