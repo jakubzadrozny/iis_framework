@@ -1,6 +1,6 @@
 from copy import deepcopy
 import numpy as np
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import torch
 from torch import nn
 
@@ -15,13 +15,13 @@ def get_next_points_1(
     prev_pc_mask=None,
     prev_nc_mask=None,
 ):
-    prev_pc_mask = torch.zeros_like(gt_mask) if prev_pc_mask is None else prev_pc_mask
-    prev_nc_mask = torch.zeros_like(gt_mask) if prev_nc_mask is None else prev_nc_mask
+    prev_pc_mask = torch.zeros_like(gt_mask, dtype=torch.float) if prev_pc_mask is None else prev_pc_mask
+    prev_nc_mask = torch.zeros_like(gt_mask, dtype=torch.float) if prev_nc_mask is None else prev_nc_mask
 
     pos_clicks, neg_clicks = get_error_clicks_batch(
         n_points, 
-        gt_mask[:, 0, :, :].numpy(), 
-        pred_mask[:, 0, :, :].numpy(),
+        gt_mask[:, 0, :, :].cpu().numpy(), 
+        pred_mask[:, 0, :, :].cpu().numpy(),
         t=0.5,
     )
     pc_mask = disk_mask_from_coords_batch(pos_clicks, prev_pc_mask)
@@ -92,13 +92,13 @@ def interact(crit, batch, interaction_steps, optim=None, clicks_per_step=1, grad
     )
     pcs = [_pcs]
     ncs = [_ncs]
-    preds = [prev_output]
+    preds = [prev_output.cpu()]
 
     scores = [0.]
     for iter_idx in tqdm(range(interaction_steps), leave=False):
         if grad_steps > 0:
             for grad_idx in range(grad_steps):
-                logits, loss = crit(image, pc_mask.float(), nc_mask.float())
+                logits, loss = crit(image, pc_mask, nc_mask)
                 optim.zero_grad()
                 loss.backward()
                 optim.step()
@@ -106,7 +106,7 @@ def interact(crit, batch, interaction_steps, optim=None, clicks_per_step=1, grad
                     print('Loss:', loss.item())
         else:
             with torch.no_grad():
-                logits, _ = crit(image, pc_mask.float(), nc_mask.float())
+                logits, _ = crit(image, pc_mask, nc_mask)
         
         prev_output = (logits.detach() > 0).float()
 

@@ -6,7 +6,7 @@ import torch
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 import albumentations as A
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from data.datasets.coco_lvis import CocoLvisDataset
 from data.datasets.inria_aerial import InriaAerialDataset
