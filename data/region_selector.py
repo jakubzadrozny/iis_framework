@@ -5,7 +5,7 @@ import numpy as np
 import torch
 
 ## utils ##
-@functools.cache
+# @functools.cache
 def generate_probs(max_num_points, gamma):  # keep one more point with P = gamma
     p = gamma ** np.arange(max_num_points)
     return p / sum(p)
