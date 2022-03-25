@@ -1,3 +1,5 @@
+from copy import deepcopy
+import numpy as np
 from tqdm import tqdm
 import torch
 from torch import nn
@@ -41,7 +43,10 @@ class AdaptLoss(nn.Module):
     def __init__(self, model, omega, lbd=1.0, gamma=1.0):
         super().__init__()
         self.model = model
-        self.init_vals = [param.detach().clone() for param in model.parameters()]
+        self.init_model = deepcopy(model)
+        for p in self.init_model.parameters():
+            p.requires_grad = False
+        # self.init_vals = [param.detach().clone() for param in model.parameters()]
         Z = sum([torch.sum(w) for w in omega])
         self.omega = [w / Z for w in  omega]
         
@@ -49,20 +54,24 @@ class AdaptLoss(nn.Module):
         self.gamma = gamma
         self.bce = nn.BCEWithLogitsLoss(reduction='none')
 
-    def __call__(self, image, pc_mask, nc_mask, init_mask):
+    def __call__(self, image, pc_mask, nc_mask):
         aux = torch.cat((pc_mask, nc_mask), dim=1)
         out = self.model(image, aux)
+        if self.lbd < 1:
+            with torch.no_grad():
+                init_logits = self.init_model(image, aux)
+                init_mask = (init_logits > 0).float()
+        else:
+            init_mask = torch.zeros_like(out)
 
         sparse_signal = torch.mean((pc_mask + nc_mask) * self.bce(out, pc_mask))
         dense_signal = torch.mean(self.bce(out, init_mask))
 
         params_change_signal = 0
-        for idx, param in enumerate(self.model.parameters()):
-            param_diff = param - self.init_vals[idx]
-            params_change_signal += torch.sum(self.omega[idx] * (param_diff ** 2))
+        for idx, (p_new, p_old) in enumerate(zip(self.model.parameters(), self.init_model.parameters())):
+            params_change_signal += torch.sum(self.omega[idx] * ((p_new - p_old) ** 2))
 
         loss = self.lbd * sparse_signal + (1-self.lbd) * dense_signal + self.gamma * params_change_signal
-        # print(sparse_signal, params_change_signal, loss)
         return out, loss
 
 
@@ -85,17 +94,11 @@ def interact(crit, batch, interaction_steps, optim=None, clicks_per_step=1, grad
     ncs = [_ncs]
     preds = [prev_output]
 
-    with torch.no_grad():
-        logits, _ = crit(image, pc_mask.float(), nc_mask.float(), prev_output)
-    probs = torch.sigmoid(logits)
-    prev_output = (probs > 0.5).float()
-    init_mask = prev_output
-
-    scores = []
+    scores = [0.]
     for iter_idx in tqdm(range(interaction_steps), leave=False):
         if grad_steps > 0:
             for grad_idx in range(grad_steps):
-                logits, loss = crit(image, pc_mask.float(), nc_mask.float(), init_mask)
+                logits, loss = crit(image, pc_mask.float(), nc_mask.float())
                 optim.zero_grad()
                 loss.backward()
                 optim.step()
@@ -103,12 +106,11 @@ def interact(crit, batch, interaction_steps, optim=None, clicks_per_step=1, grad
                     print('Loss:', loss.item())
         else:
             with torch.no_grad():
-                logits, _ = crit(image, pc_mask.float(), nc_mask.float(), init_mask)
+                logits, _ = crit(image, pc_mask.float(), nc_mask.float())
         
-        probs = torch.sigmoid(logits.detach())
-        prev_output = (probs > 0.5).float()
+        prev_output = (logits.detach() > 0).float()
 
-        score = iou(prev_output, gt_mask)[0, 0]
+        score = torch.mean(iou(prev_output, gt_mask))
         scores.append(score.item())
         if verbose:
             print()
@@ -124,7 +126,7 @@ def interact(crit, batch, interaction_steps, optim=None, clicks_per_step=1, grad
             prev_pc_mask=pc_mask,
             prev_nc_mask=nc_mask,
         )
-        preds.append(prev_output)
+        preds.append(prev_output.cpu())
         pcs.append(_pcs)
         ncs.append(_ncs)
 
@@ -140,4 +142,4 @@ def interact(crit, batch, interaction_steps, optim=None, clicks_per_step=1, grad
                 "clicks"+str(iter_idx),
             )
 
-    return scores, preds, pcs, ncs
+    return np.array(scores), preds, pcs, ncs

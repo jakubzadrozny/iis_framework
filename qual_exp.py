@@ -1,18 +1,15 @@
-from functools import partial
 from matplotlib import pyplot as plt
 import numpy as np
 import torch
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 import albumentations as A
-from tqdm import tqdm
 
 from data.datasets.coco_lvis import CocoLvisDataset
 from data.datasets.inria_aerial import InriaAerialDataset
 from data.region_selector import random_single, dummy
 from data.iis_dataset import RegionDataset
 from data.transformations import RandomCrop
-from engine.mas import compute_importance_l2
 from engine.cont_adapt import AdaptLoss, interact
 from models.iis_models.ritm import HRNetISModel
 
@@ -58,24 +55,18 @@ if __name__ == "__main__":
         iis_dataset, batch_size=1, num_workers=1, shuffle=True
     )
 
+    batch = next(iter(iis_loader))
+
     model = HRNetISModel.load_from_checkpoint(
         '/Users/kubaz/ENS-offline/satellites/project/iis_framework/checkpoints/coco_lvis_h18_baseline.pth',
     )
     model.eval()
     model.train()
-    # iis_loader_batched = DataLoader(
-    #     iis_dataset, batch_size=8, num_workers=8, shuffle=True
-    # )
-    # omega = compute_importance_l2(model, iis_loader_batched)
-    # torch.save(omega, 'omega.pth')
     omega = torch.load('omega.pth')
-    # omega_ones = [torch.ones_like(p) for p in model.parameters()]
     optim = Adam(model.parameters(), lr=1e-6)
     crit = AdaptLoss(model, omega)
 
-    batch = next(iter(iis_loader))
     scores, preds, pcs, ncs = interact(crit, batch, interaction_steps=20, clicks_per_step=1, optim=optim, grad_steps=10)
-    # breakpoint()
     fig, axs = plt.subplots(4, 5, sharex=True, sharey=True, figsize=(10, 10), tight_layout=True)
     img = batch['image'][0]
     gt_mask = batch['mask'][0]
@@ -84,4 +75,23 @@ if __name__ == "__main__":
             idx = i*5 + j
             pred = gt_mask.numpy() if idx == 0 else preds[idx][0, 0].numpy()
             visualize_error(axs[i, j], img, pred, 0.3, pcs[idx][0], ncs[idx][0])
-    plt.savefig("test.png")
+            axs[i, j].set_title("IoU={}".format(round(scores[idx], 4)))
+    plt.savefig("test_adapt.png")
+
+    model = HRNetISModel.load_from_checkpoint(
+        '/Users/kubaz/ENS-offline/satellites/project/iis_framework/checkpoints/coco_lvis_h18_baseline.pth',
+    )
+    model.eval()
+    crit = AdaptLoss(model, omega, gamma=1e6)
+
+    scores, preds, pcs, ncs = interact(crit, batch, interaction_steps=20, clicks_per_step=1, grad_steps=0)
+    fig, axs = plt.subplots(4, 5, sharex=True, sharey=True, figsize=(10, 10), tight_layout=True)
+    img = batch['image'][0]
+    gt_mask = batch['mask'][0]
+    for i in range(4):
+        for j in range(5):
+            idx = i*5 + j
+            pred = gt_mask.numpy() if idx == 0 else preds[idx][0, 0].numpy()
+            visualize_error(axs[i, j], img, pred, 0.3, pcs[idx][0], ncs[idx][0])
+            axs[i, j].set_title("IoU={}".format(round(scores[idx], 4)))
+    plt.savefig("test_frozen.png")
