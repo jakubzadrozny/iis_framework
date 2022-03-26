@@ -62,7 +62,7 @@ def main(loader, to_test, num_batches=10):
         scores = np.array(scores)
         results_mean[name] = np.mean(scores, axis=0)
         results_std[name] = np.std(scores, axis=0)
-        xs = np.arange(1, scores.shape[1]+1)
+        xs = np.arange(0, scores.shape[1])
         plt.plot(xs, results_mean[name], label=name)
         # plt.fill_between(xs, mean-std, mean+std, label=name, alpha=0.2)
         scores = np.concatenate((scores, np.ones((scores.shape[0], 1))), axis=1)
@@ -78,7 +78,7 @@ def main(loader, to_test, num_batches=10):
     print(clicks_at_iou)
     
     plt.legend()
-    plt.ylim(0., 1.)
+    plt.ylim(0.2, 0.9)
     plt.ylabel("mean IoU")
     plt.xlabel("# of clicks")
     ax = plt.gca()
@@ -125,8 +125,13 @@ if __name__ == "__main__":
     
     _pipeline = partial(pipeline, model_path=model_path)
     to_test = {
+        'adapt_mas_1e4': partial(_pipeline, weights=omega, grad_steps=3, gamma=1e4),
+        'adapt_mas_1e5': partial(_pipeline, weights=omega, grad_steps=3, gamma=1e5),
         'adapt_mas_1e6': partial(_pipeline, weights=omega, grad_steps=3, gamma=1e6),
+        'adapt_mas_1e7': partial(_pipeline, weights=omega, grad_steps=3, gamma=1e7),
+        'adapt_mas_1e8': partial(_pipeline, weights=omega, grad_steps=3, gamma=1e8),
+        'adapt_mas_1e9': partial(_pipeline, weights=omega, grad_steps=3, gamma=1e9),
         'frozen': partial(_pipeline, weights=omega_ones, grad_steps=0),
     }
     
-    main(iis_loader, to_test, num_batches=2)
+    main(iis_loader, to_test, num_batches=20)
