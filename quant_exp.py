@@ -24,7 +24,7 @@ def fill_scores(scores, iters):
     return scores
 
 
-def pipeline(batch, model_path, weights, grad_steps, lbd=1.0, gamma=1.0, device='cpu'):
+def pipeline(batch, model_path, weights, grad_steps, lbd=1.0, gamma=1.0, device='cpu', interaction_steps=20):
     for k in batch:
         batch[k] = batch[k].to(device)
     model = HRNetISModel.load_from_checkpoint(
@@ -38,8 +38,8 @@ def pipeline(batch, model_path, weights, grad_steps, lbd=1.0, gamma=1.0, device=
     else:
         optim = None
     crit = AdaptLoss(model, weights, lbd=lbd, gamma=gamma)
-    scores, _, _, _ = interact(crit, batch, interaction_steps=20, clicks_per_step=1, optim=optim, grad_steps=grad_steps)
-    fill_scores(scores, 20)
+    scores, _, _, _ = interact(crit, batch, interaction_steps=interaction_steps, clicks_per_step=1, optim=optim, grad_steps=grad_steps)
+    fill_scores(scores, interaction_steps+1)
     return scores
 
 
@@ -52,19 +52,29 @@ def main(loader, to_test, num_batches=10):
         if batch_idx == num_batches-1:
             break
 
-    results_mean = {name: np.mean(np.array(val), axis=0) for name, val in results.items()}
-    results_std = {name: np.std(np.array(val), axis=0) for name, val in results.items()}
-    print(results_mean)
-    print()
-    print(results_std)
+    iou_targets = [0.7, 0.75, 0.8]
+    clicks_at_iou = [{}] * len(iou_targets)
+    results_mean = {}
+    results_std = {}
 
     for name, scores in results.items():
         scores = np.array(scores)
-        mean = np.mean(scores, axis=0)
-        # std = np.std(scores, axis=0)
-        xs = np.arange(1, mean.shape[0]+1)
-        plt.plot(xs, mean, label=name)
+        results_mean[name] = np.mean(scores, axis=0)
+        results_std[name] = np.std(scores, axis=0)
+        xs = np.arange(1, scores.shape[1]+1)
+        plt.plot(xs, results_mean[name], label=name)
         # plt.fill_between(xs, mean-std, mean+std, label=name, alpha=0.2)
+        scores = np.concatenate((scores, np.ones((scores.shape[0], 1))), axis=1)
+        for i, t in enumerate(iou_targets):
+            clicks = np.argmax(scores > t, axis=1)
+            clicks_at_iou[i][name] = np.mean(clicks)
+
+    print(results_mean)
+    print()
+    print(results_std)
+    print()
+    print(iou_targets)
+    print(clicks_at_iou)
     
     plt.legend()
     plt.ylim(0., 1.)
@@ -73,6 +83,8 @@ def main(loader, to_test, num_batches=10):
     ax = plt.gca()
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     plt.savefig("comparison_inria.png")
+
+    return results_mean, results_std, iou_targets, clicks_at_iou
 
 
 if __name__ == "__main__":
@@ -88,7 +100,7 @@ if __name__ == "__main__":
     # )
     # region_selector = random_single
     augmentator = A.Compose([
-        RandomCrop(out_size=(224,224)),
+        RandomCrop(out_size=(256,256)),
         A.Normalize(),
     ])
 
@@ -112,11 +124,8 @@ if __name__ == "__main__":
     
     _pipeline = partial(pipeline, model_path=model_path)
     to_test = {
-        'adapt_unif_1e6': partial(_pipeline, weights=omega_ones, grad_steps=4, gamma=1e6),
-        'adapt_unif_1e7': partial(_pipeline, weights=omega_ones, grad_steps=4, gamma=1e7),
-        'adapt_unif_1e8': partial(_pipeline, weights=omega_ones, grad_steps=4, gamma=1e8),
-        'adapt_unif_1e9': partial(_pipeline, weights=omega_ones, grad_steps=4, gamma=1e9),
+        'adapt_mas_1e6': partial(_pipeline, weights=omega, grad_steps=3, gamma=1e6),
         'frozen': partial(_pipeline, weights=omega_ones, grad_steps=0),
     }
     
-    main(iis_loader, to_test)
+    main(iis_loader, to_test, num_batches=2)
