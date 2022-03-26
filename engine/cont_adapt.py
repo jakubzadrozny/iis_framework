@@ -4,7 +4,7 @@ from tqdm.auto import tqdm
 import torch
 from torch import nn
 
-from data.clicking import get_error_clicks_batch, visualize_clicks, disk_mask_from_coords_batch
+from data.clicking import get_error_clicks_batch, disk_mask_from_coords_batch
 from engine.metrics import iou
 
 
@@ -54,8 +54,7 @@ class AdaptLoss(nn.Module):
         self.gamma = gamma
         self.bce = nn.BCEWithLogitsLoss(reduction='none')
 
-    def __call__(self, image, pc_mask, nc_mask):
-        aux = torch.cat((pc_mask, nc_mask), dim=1)
+    def __call__(self, image, aux, pc_mask, nc_mask):
         out = self.model(image, aux)
         if self.lbd < 1:
             with torch.no_grad():
@@ -64,7 +63,10 @@ class AdaptLoss(nn.Module):
         else:
             init_mask = torch.zeros_like(out)
 
-        sparse_signal = torch.mean((pc_mask + nc_mask) * self.bce(out, pc_mask))
+        all_mask = torch.clip(pc_mask + nc_mask, min=0, max=1)
+        mask_cnt = torch.sum(all_mask, dim=[2, 3])
+        sparse_signal_per_item = torch.sum(all_mask * self.bce(out, pc_mask)) / mask_cnt
+        sparse_signal = torch.mean(sparse_signal_per_item)
         dense_signal = torch.mean(self.bce(out, init_mask))
 
         params_change_signal = 0
@@ -98,7 +100,8 @@ def interact(crit, batch, interaction_steps, optim=None, clicks_per_step=1, grad
     for iter_idx in tqdm(range(interaction_steps), leave=False):
         if grad_steps > 0:
             for grad_idx in range(grad_steps):
-                logits, loss = crit(image, pc_mask, nc_mask)
+                aux = torch.cat((pc_mask, nc_mask), dim=1)
+                logits, loss = crit(image, aux, pc_mask, nc_mask)
                 optim.zero_grad()
                 loss.backward()
                 optim.step()
@@ -106,7 +109,8 @@ def interact(crit, batch, interaction_steps, optim=None, clicks_per_step=1, grad
                     print('Loss:', loss.item())
         else:
             with torch.no_grad():
-                logits, _ = crit(image, pc_mask, nc_mask)
+                aux = torch.cat((pc_mask, nc_mask), dim=1)
+                logits, _ = crit(image, aux, pc_mask, nc_mask)
         
         prev_output = (logits.detach() > 0).float()
 
@@ -129,17 +133,5 @@ def interact(crit, batch, interaction_steps, optim=None, clicks_per_step=1, grad
         preds.append(prev_output.cpu())
         pcs.append(_pcs)
         ncs.append(_ncs)
-
-        all_pos_cliks = sum([iter_pos_clicks[0] for iter_pos_clicks in pcs], [])
-        all_neg_clicks = sum([iter_neg_clicks[0] for iter_neg_clicks in ncs], [])
-        if verbose:
-            visualize_clicks(
-                image[0, :, :, :].permute(1, 2, 0).numpy(), 
-                gt_mask[0, 0, :, :].numpy(), 
-                0.3, 
-                all_pos_cliks,
-                all_neg_clicks, 
-                "clicks"+str(iter_idx),
-            )
 
     return np.array(scores), preds, pcs, ncs
