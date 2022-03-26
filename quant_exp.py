@@ -57,6 +57,7 @@ def main(loader, to_test, num_batches=10):
     results_mean = {}
     results_std = {}
 
+    plt.figure(figsize=(10, 6))
     for name, scores in results.items():
         scores = np.array(scores)
         results_mean[name] = np.mean(scores, axis=0)
@@ -82,7 +83,7 @@ def main(loader, to_test, num_batches=10):
     plt.xlabel("# of clicks")
     ax = plt.gca()
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-    plt.savefig("comparison_inria.png")
+    plt.savefig("comparison_inria.png", dpi=300)
 
     return results_mean, results_std, iou_targets, clicks_at_iou
 
