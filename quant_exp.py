@@ -45,15 +45,16 @@ def pipeline(batch, model_path, weights, grad_steps, lbd=1.0, gamma=1.0, device=
 
 def main(loader, to_test, num_batches=10):
     results = {k: [] for k in to_test}
-    for batch_idx, batch in tqdm(enumerate(loader), total=num_batches):
-        for name, f in tqdm(to_test.items(), leave=False):
-            scores = f(batch)
-            results[name].append(scores)
-        if batch_idx == num_batches-1:
-            break
+    batch_idx = 0
+    while batch_idx < num_batches:
+        for batch in tqdm(loader, total=num_batches):
+            for name, f in tqdm(to_test.items(), leave=False):
+                scores = f(batch)
+                results[name].append(scores)
+            batch_idx += 1
 
     iou_targets = [0.7, 0.75, 0.8]
-    clicks_at_iou = [{}] * len(iou_targets)
+    clicks_at_iou = [{} for _ in range(len(iou_targets))]
     results_mean = {}
     results_std = {}
 
@@ -85,7 +86,7 @@ def main(loader, to_test, num_batches=10):
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     plt.savefig("comparison_inria.png", dpi=300)
 
-    return results_mean, results_std, iou_targets, clicks_at_iou
+    return results, results_mean, results_std, iou_targets, clicks_at_iou
 
 
 if __name__ == "__main__":
@@ -101,11 +102,12 @@ if __name__ == "__main__":
     # )
     # region_selector = random_single
     augmentator = A.Compose([
-        RandomCrop(out_size=(256,256)),
+        RandomCrop(out_size=(300,300)),
         A.Normalize(),
     ])
 
     model_path = '/Users/kubaz/ENS-offline/satellites/project/iis_framework/checkpoints/coco_lvis_h18_baseline.pth'
+    seq_model_path = '/Users/kubaz/ENS-offline/satellites/project/iis_framework/checkpoints/seq_adapt.pth'
 
     iis_dataset = RegionDataset(seg_dataset, region_selector, augmentator)
     iis_loader = DataLoader(
@@ -118,20 +120,13 @@ if __name__ == "__main__":
     # omega = compute_importance_l2(model, iis_loader_batched)
     # torch.save(omega, 'omega.pth')
     omega = torch.load('omega.pth')
-    model = HRNetISModel.load_from_checkpoint(
-        model_path,
-    )
-    omega_ones = [torch.ones_like(p) for p in model.parameters()]
+    omega_ones = [torch.ones_like(p) for p in omega]
     
-    _pipeline = partial(pipeline, model_path=model_path)
+    _pipeline = partial(pipeline, interaction_steps=30)
     to_test = {
-        'adapt_mas_1e4': partial(_pipeline, weights=omega, grad_steps=3, gamma=1e4),
-        'adapt_mas_1e5': partial(_pipeline, weights=omega, grad_steps=3, gamma=1e5),
-        'adapt_mas_1e6': partial(_pipeline, weights=omega, grad_steps=3, gamma=1e6),
-        'adapt_mas_1e7': partial(_pipeline, weights=omega, grad_steps=3, gamma=1e7),
-        'adapt_mas_1e8': partial(_pipeline, weights=omega, grad_steps=3, gamma=1e8),
-        'adapt_mas_1e9': partial(_pipeline, weights=omega, grad_steps=3, gamma=1e9),
-        'frozen': partial(_pipeline, weights=omega_ones, grad_steps=0),
+        'ia': partial(_pipeline, weights=omega_ones, grad_steps=5, gamma=3e4, model_path=model_path),
+        'sa': partial(_pipeline, weights=omega_ones, grad_steps=5, gamma=3e4, model_path=seq_model_path),
+        'frozen': partial(_pipeline, weights=omega_ones, grad_steps=0, model_path=model_path),
     }
     
-    main(iis_loader, to_test, num_batches=20)
+    main(iis_loader, to_test, num_batches=2)

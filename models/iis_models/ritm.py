@@ -134,3 +134,9 @@ class HRNetISModel(nn.Module):
         model = cls(**model_args)
         model.load_state_dict(state_dict, strict=False)
         return model
+
+    def save_checkpoint(self, in_path, out_path):
+        ckpt = torch.load(in_path, map_location='cpu')
+        config = ckpt['config']
+        ckpt['state_dict'] = self.state_dict()
+        torch.save(ckpt, out_path)

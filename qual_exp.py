@@ -46,7 +46,7 @@ if __name__ == "__main__":
     # )
     # region_selector = random_single
     augmentator = A.Compose([
-        RandomCrop(out_size=(224,224)),
+        RandomCrop(out_size=(300,300)),
         A.Normalize(),
     ])
 
@@ -62,36 +62,40 @@ if __name__ == "__main__":
     )
     model.eval()
     model.train()
-    omega = torch.load('omega.pth')
     optim = Adam(model.parameters(), lr=1e-6)
-    crit = AdaptLoss(model, omega)
 
-    scores, preds, pcs, ncs = interact(crit, batch, interaction_steps=20, clicks_per_step=1, optim=optim, grad_steps=10)
-    fig, axs = plt.subplots(4, 5, sharex=True, sharey=True, figsize=(10, 10), tight_layout=True)
+    omega = torch.load('omega.pth')
+    omega_ones = [torch.ones_like(p) for p in omega]
+    crit = AdaptLoss(model, omega_ones, gamma=3e4)
+
+    scores, preds, pcs, ncs = interact(crit, batch, interaction_steps=30, clicks_per_step=1, optim=optim, grad_steps=5)
+    fig, axs = plt.subplots(5, 6, sharex=True, sharey=True, figsize=(12, 10), tight_layout=True)
     img = batch['image'][0]
     gt_mask = batch['mask'][0]
-    for i in range(4):
-        for j in range(5):
-            idx = i*5 + j
+    for i in range(5):
+        for j in range(6):
+            idx = i*6 + j
             pred = gt_mask.numpy() if idx == 0 else preds[idx][0, 0].numpy()
             visualize_error(axs[i, j], img, pred, 0.3, pcs[idx][0], ncs[idx][0])
             axs[i, j].set_title("IoU={}".format(round(scores[idx], 4)))
+    axs[0, 0].set_title("ground truth")
     plt.savefig("test_adapt.png")
 
     model = HRNetISModel.load_from_checkpoint(
         '/Users/kubaz/ENS-offline/satellites/project/iis_framework/checkpoints/coco_lvis_h18_baseline.pth',
     )
     model.eval()
-    crit = AdaptLoss(model, omega, gamma=1e6)
+    crit = AdaptLoss(model, omega)
 
-    scores, preds, pcs, ncs = interact(crit, batch, interaction_steps=20, clicks_per_step=1, grad_steps=0)
-    fig, axs = plt.subplots(4, 5, sharex=True, sharey=True, figsize=(10, 10), tight_layout=True)
+    scores, preds, pcs, ncs = interact(crit, batch, interaction_steps=30, clicks_per_step=1, grad_steps=0)
+    fig, axs = plt.subplots(5, 6, sharex=True, sharey=True, figsize=(12, 10), tight_layout=True)
     img = batch['image'][0]
     gt_mask = batch['mask'][0]
-    for i in range(4):
-        for j in range(5):
-            idx = i*5 + j
+    for i in range(5):
+        for j in range(6):
+            idx = i*6 + j
             pred = gt_mask.numpy() if idx == 0 else preds[idx][0, 0].numpy()
             visualize_error(axs[i, j], img, pred, 0.3, pcs[idx][0], ncs[idx][0])
             axs[i, j].set_title("IoU={}".format(round(scores[idx], 4)))
+    axs[0, 0].set_title("ground truth")
     plt.savefig("test_frozen.png")
