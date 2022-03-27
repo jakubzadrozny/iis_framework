@@ -52,6 +52,8 @@ def main(loader, to_test, num_batches=10):
                 scores = f(batch)
                 results[name].append(scores)
             batch_idx += 1
+            if batch_idx == num_batches:
+                break
 
     iou_targets = [0.7, 0.75, 0.8]
     clicks_at_iou = [{} for _ in range(len(iou_targets))]

@@ -57,10 +57,12 @@ def to_device(batch, device):
     return batch
 
 
-def seq_adapt(num_epochs, train_loader, crit, optim, save_checkpoint, interaction_steps, 
+def seq_adapt(num_epochs, train_loader, crit, baseline, optim, save_checkpoint, interaction_steps, 
               target_iou=0.75, report_clicks=6, device='cpu', log_every=10):
     train_scores_log = []
+    baseline_scores_log = []
     clicks_needed = []
+    baseline_clicks_needed = []
     # test_scores_log = []
     for epoch_idx in tqdm(range(1, num_epochs+1)):
         # train_epoch_iou = 0.
@@ -70,8 +72,8 @@ def seq_adapt(num_epochs, train_loader, crit, optim, save_checkpoint, interactio
             image = batch["image"]
             image = image.permute(0, 3, 1, 2) if image.shape[-1] == 3 else image
             bs, _, h, w = image.shape
-
             scores, _, pcs, ncs = interact(crit, batch, interaction_steps, grad_steps=0, target_iou=target_iou)
+            baseline_scores = interact(baseline, batch, interaction_steps, grad_steps=0, target_iou=target_iou)[0]
             all_pcs = [sum([iter_clicks[i] for iter_clicks in pcs], []) for i in range(bs)]
             all_ncs = [sum([iter_clicks[i] for iter_clicks in ncs], []) for i in range(bs)]
 
@@ -103,17 +105,23 @@ def seq_adapt(num_epochs, train_loader, crit, optim, save_checkpoint, interactio
             optim.step()
 
             score = scores[report_clicks] if len(scores) > report_clicks else scores[-1]
+            baseline_score = baseline_scores[report_clicks] if len(baseline_scores) > report_clicks else baseline_scores[-1]
             train_scores_log.append(score)
+            baseline_scores_log.append(baseline_score)
             clicks_needed.append(len(scores) - 1)
+            baseline_clicks_needed.append(len(baseline_scores) - 1)
             if len(train_scores_log) % log_every == 1:
                 episode_iou = np.mean(np.array(train_scores_log[-log_every:]))
                 episode_clicks = np.mean(np.array(clicks_needed[-log_every:]))
-                print("After {} images iou @ {} clicks = {}, clicks @ {} iou = {}".format(
-                    len(train_scores_log),
-                    report_clicks,
-                    round(episode_iou, 4),
-                    round(target_iou, 2),
-                    round(episode_clicks, 2),
+                baseline_episode_iou = np.mean(np.array(baseline_scores_log[-log_every:]))
+                baseline_episode_clicks = np.mean(np.array(baseline_clicks_needed[-log_every:]))
+                msg = "After {iter} images iou={iou} (baseline iou = {baseline_iou}), clicks = {clicks} (baseline clicks = {baseline_clicks})"
+                print(msg.format(
+                    iter=len(train_scores_log),
+                    iou=round(episode_iou, 4),
+                    baseline_iou=round(baseline_episode_iou, 4),
+                    clicks=round(episode_clicks, 2),
+                    baseline_clicks=round(baseline_episode_clicks, 2),
                 ))
                 save_checkpoint()
 
@@ -133,7 +141,7 @@ def seq_adapt(num_epochs, train_loader, crit, optim, save_checkpoint, interactio
         #     round(test_epoch_mean[-1], 4),
         # ))
 
-    return train_scores_log, clicks_needed
+    return train_scores_log, clicks_needed, baseline_scores_log, baseline_clicks_needed
 
 
 if __name__ == "__main__":
@@ -165,8 +173,6 @@ if __name__ == "__main__":
 
     model_path = '/Users/kubaz/ENS-offline/satellites/project/iis_framework/checkpoints/coco_lvis_h18_baseline.pth'
     new_model_path = '/Users/kubaz/ENS-offline/satellites/project/iis_framework/checkpoints/seq_adapt.pth'
-    save_checkpoint = lambda: model.save_checkpoint(model_path, new_model_path)
-    
     model = HRNetISModel.load_from_checkpoint(
         model_path,
     )
@@ -176,33 +182,23 @@ if __name__ == "__main__":
     
     omega = torch.load('omega.pth')
     omega_ones = [torch.ones_like(w) for w in omega]
-    crit = AdaptLoss(model, omega_ones, gamma=1e5)
+    crit = AdaptLoss(model, omega_ones, lbd=0.5, gamma=1e5)
+    save_checkpoint = lambda: model.save_checkpoint(model_path, new_model_path)
 
-    train_scores_log, clicks_needed = seq_adapt(
-        5, 
-        train_loader, 
-        crit, 
-        optim, 
-        save_checkpoint,
-        interaction_steps=25,
-        log_every=10,
+    baseline_model = HRNetISModel.load_from_checkpoint(
+        model_path,
     )
-    
-    plt.plot(train_scores_log)
-    plt.ylim(0., 1.)
-    plt.ylabel("IoU @ 6 clicks")
-    plt.xlabel("# of images")
-    ax = plt.gca()
-    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-    plt.savefig("seq_adapt1.png")
-    plt.plot()
+    baseline_model.eval()
+    baseline = AdaptLoss(baseline_model, omega_ones)
 
-    plt.plot(clicks_needed)
-    plt.ylabel("Clicks to 0.75 IoU")
-    plt.xlabel("# of images")
-    ax = plt.gca()
-    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-    plt.savefig("seq_adapt2.png")
-    plt.plot()
-
-    
+    res = seq_adapt(
+        num_epochs=10, 
+        train_loader=train_loader, 
+        crit=crit,
+        baseline=baseline,
+        optim=optim, 
+        save_checkpoint=save_checkpoint,
+        interaction_steps=25,
+        log_every=20,
+        target_iou=0.75,
+    )
