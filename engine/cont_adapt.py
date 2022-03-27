@@ -1,6 +1,5 @@
 from copy import deepcopy
 import numpy as np
-from tqdm.auto import tqdm
 import torch
 from torch import nn
 
@@ -97,7 +96,7 @@ def interact(crit, batch, interaction_steps, optim=None, clicks_per_step=1, grad
     preds = [prev_output.cpu()]
 
     scores = [0.]
-    for iter_idx in tqdm(range(interaction_steps), leave=False):
+    for iter_idx in range(interaction_steps):
         if grad_steps > 0:
             for grad_idx in range(grad_steps):
                 aux = torch.cat((pc_mask, nc_mask), dim=1)
