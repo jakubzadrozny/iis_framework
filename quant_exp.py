@@ -24,7 +24,7 @@ def fill_scores(scores, iters):
     return scores
 
 
-def pipeline(batch, model_path, weights, grad_steps, lbd=1.0, gamma=1.0, device='cpu', interaction_steps=20):
+def pipeline(batch, model_path, weights, grad_steps, lbd=1.0, gamma=1.0, lr=1e-6, device='cpu', interaction_steps=20):
     for k in batch:
         batch[k] = batch[k].to(device)
     model = HRNetISModel.load_from_checkpoint(
@@ -34,7 +34,7 @@ def pipeline(batch, model_path, weights, grad_steps, lbd=1.0, gamma=1.0, device=
     model.eval() # set BatchNorm to eval
     if grad_steps > 0:
         model.train()
-        optim = Adam(model.parameters(), lr=1e-6)
+        optim = Adam(model.parameters(), lr=lr)
     else:
         optim = None
     crit = AdaptLoss(model, weights, lbd=lbd, gamma=gamma)
@@ -48,7 +48,7 @@ def main(loader, to_test, num_batches=10):
     batch_idx = 0
     while batch_idx < num_batches:
         for batch in tqdm(loader, total=num_batches):
-            for name, f in tqdm(to_test.items(), leave=False):
+            for name, f in to_test.items():
                 scores = f(batch)
                 results[name].append(scores)
             batch_idx += 1
