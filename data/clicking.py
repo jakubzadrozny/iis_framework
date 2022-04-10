@@ -96,7 +96,7 @@ def get_d_prob_map(mask, hard_thresh=1e-6, t=1.0):
     if Z > 0:
         probs = dt / Z
     else:
-        probs = 1 / mask.size
+        probs = np.ones_like(dt) / mask.size
     weights = (hard_thresh < probs).astype(float) if (0 < hard_thresh) else probs
     return weights
 
