@@ -89,12 +89,9 @@ def get_d_prob_map(mask, hard_thresh=1e-6, t=1.0):
     """
     padded_mask = np.pad(mask, ((1, 1), (1, 1)), "constant")
     dt = cv2.distanceTransform(padded_mask.astype(np.uint8), cv2.DIST_L2, 0)[1:-1, 1:-1]
-    if t < 0:
-        dt = (dt == np.max(dt))
-    else:
-        dt = np.clip(dt, 0, 50)
-        if hard_thresh == 0:
-            dt = mask * np.exp(t*dt)
+    dt = np.clip(dt, 0, 50)
+    if hard_thresh == 0:
+        dt = mask * np.exp(t*dt)
     Z = np.sum(dt)
     if Z > 0:
         probs = dt / Z
@@ -111,10 +108,22 @@ def sample_point(prob_map):
     return np.array(click_coords)
 
 
+def get_point_deterministic(mask):
+    padded_mask = np.pad(mask, ((1, 1), (1, 1)), "constant")
+    dt = cv2.distanceTransform(padded_mask.astype(np.uint8), cv2.DIST_L2, 0)[1:-1, 1:-1]
+    click_indx = np.argmax(dt.flatten())
+    click_coords = np.unravel_index(click_indx, mask.shape)
+    return click_coords
+
+
 def get_point_from_mask(mask, hard_thresh=1e-6, t=1.0):
     """Sample point from inside mask"""
-    prob_map = get_d_prob_map(mask, hard_thresh=hard_thresh, t=t)
-    return sample_point(prob_map)
+    if t >= 0:
+        prob_map = get_d_prob_map(mask, hard_thresh=hard_thresh, t=t)
+        point = sample_point(prob_map)
+    else:
+        point = get_point_deterministic(mask)
+    return point
 
 
 def positive_erode(mask, erode_iters=15):
