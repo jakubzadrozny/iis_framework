@@ -21,7 +21,7 @@ def get_next_points_1(
         n_points, 
         gt_mask[:, 0, :, :].cpu().numpy(), 
         pred_mask[:, 0, :, :].cpu().numpy(),
-        t=0.5,
+        t=-1,
     )
     pc_mask = disk_mask_from_coords_batch(pos_clicks, prev_pc_mask)
     nc_mask = (

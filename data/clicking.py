@@ -89,9 +89,12 @@ def get_d_prob_map(mask, hard_thresh=1e-6, t=1.0):
     """
     padded_mask = np.pad(mask, ((1, 1), (1, 1)), "constant")
     dt = cv2.distanceTransform(padded_mask.astype(np.uint8), cv2.DIST_L2, 0)[1:-1, 1:-1]
-    dt = np.clip(dt, 0, 50)
-    if hard_thresh == 0:
-        dt = mask * np.exp(t*dt)
+    if t < 0:
+        dt = (dt == np.max(dt))
+    else:
+        dt = np.clip(dt, 0, 50)
+        if hard_thresh == 0:
+            dt = mask * np.exp(t*dt)
     Z = np.sum(dt)
     if Z > 0:
         probs = dt / Z
