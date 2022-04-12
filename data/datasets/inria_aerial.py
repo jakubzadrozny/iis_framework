@@ -13,7 +13,7 @@ class InriaAerialDataset(SegDataset):
         self._images_path = self._split_path / "images"
         self._masks_path = self._split_path / "gt"
         
-        self.dataset_samples = [f.stem for f in self._images_path.glob("*.tif")]
+        self.dataset_samples = sorted([f.stem for f in self._images_path.glob("*.tif")])
 
     def get_sample(self, index):
         image_id = self.dataset_samples[index]
