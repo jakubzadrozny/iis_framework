@@ -1,3 +1,19 @@
+# Interactive Segmentation of Satellite Imagery by Learning from Corrections
+## MVA 21/22 Remote Sensing Project
+
+`experiments.ipynb` notebook is prepared to work well on Google Colab (don't know about local env).
+Files are available here:
+- `omega_bce.pth` (MAS weights for Inria Aerial Dataset): https://drive.google.com/file/d/1-3kKfVpDyJuK20tuQnCxJFPhSga5Celd/view?usp=sharing
+- `omega_bce_coco.pth` (MAS weights for COCO+LVIS): https://drive.google.com/file/d/18ZmCUN2Y1g70CLwntoUm5z7QuAuvZS2X/view?usp=sharing
+- `coco_lvis_h18_baseline.pth` (pre-trained model weights): https://drive.google.com/file/d/1jPaE9naRku0YNDy_9nFRHA5oNN3J5Q2A/view?usp=sharing
+- `AerialImageDataset.zip`: https://drive.google.com/file/d/1RzbhWPyvQHyylItXYdMlyUeFoncJX61H/view?usp=sharing
+
+Also:
+- `qual_exp.py` can be used to generate qualitative comparisons,
+- `show_clicks.py` can be used to visualize click sampling,
+- `engine/mas.py` can be used to recompute the MAS weights.
+
+---------------------------------------------------------------------------------------------------------------------------
 
 # Interactive Image Segmentation Framework
 
