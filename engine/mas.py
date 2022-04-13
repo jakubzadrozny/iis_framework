@@ -1,10 +1,16 @@
-from random import uniform
-import torch
-from torch import nn
-from torch import optim
-from tqdm import tqdm
+# Adapted from https://github.com/rahafaljundi/MAS-Memory-Aware-Synapses
 
+import torch
+from torch import nn, optim
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+import albumentations as A
+
+from data.datasets.inria_aerial import InriaAerialDataset
+from data.iis_dataset import RegionDataset
+from data.region_selector import dummy
 from data.clicking import get_positive_clicks_batch, disk_mask_from_coords_batch
+from models.iis_models.ritm import HRNetISModel
 
 
 def initialize_reg_params(model,freeze_layers=[]):
@@ -67,23 +73,21 @@ class MAS_Omega_update(optim.SGD):
             omega=omega.add(unreg_dp.abs_())
             #update omega value
             omega=omega.div(curr_size)
-            if omega.equal(zero):
-                print('omega after zero')
 
             omegas[idx] = omega
             #HERE MAS IMPOERANCE UPDATE ENDS
         return loss#HAS NOTHING TO DO
 
 
-def compute_importance_l2(model, loader):
+def compute_importance_l2(model, loader, device='cpu'):
     """Mimic the depoloyment setup where the model is applied on some samples and those are used to update the importance params
        Uses the L2norm of the function output. This is what we MAS uses as default
     """
     # model.eval()  # Set model to training mode so we get the gradient
     reg_params = initialize_reg_params(model)
-    optim = MAS_Omega_update(model.parameters(), lr=0.0001, momentum=0.9)
+    optim = MAS_Omega_update(model.parameters(), lr=0.0003, momentum=0.9)
 
-    crit = nn.MSELoss(reduction='sum')
+    crit = nn.BCEWithLogitsLoss(reduction='mean')
 
     # Iterate over data.
     for index, batch in tqdm(enumerate(loader)):
@@ -96,20 +100,45 @@ def compute_importance_l2(model, loader):
         image = image.permute(0, 3, 1, 2) if image.shape[-1] == 3 else image
         gt_mask = gt_mask[:, None, :, :] if gt_mask.ndim < 4 else gt_mask
 
-        pos_clicks = get_positive_clicks_batch(4, gt_mask, near_border=False, uniform_probs=True, erode_iters=0)
-        neg_clicks = get_positive_clicks_batch(4, 1-gt_mask, near_border=False, uniform_probs=True, erode_iters=0)
+        pos_clicks = get_positive_clicks_batch(5, gt_mask, near_border=False, uniform_probs=True, erode_iters=0)
+        neg_clicks = get_positive_clicks_batch(5, 1-gt_mask, near_border=False, uniform_probs=True, erode_iters=0)
         pc_mask = disk_mask_from_coords_batch(pos_clicks, torch.zeros_like(gt_mask))[:, None, :, :]
         nc_mask = disk_mask_from_coords_batch(neg_clicks, torch.zeros_like(gt_mask))[:, None, :, :]
         aux = torch.cat((pc_mask, nc_mask), dim=1).float()
 
         # forward
+        image = image.to(device)
+        aux = aux.to(device)
+        gt_mask = gt_mask.to(device)
         logits = model(image, aux)
-        probs = torch.sigmoid(logits)
-        target_zeros = torch.zeros_like(probs)
-        loss = crit(probs, target_zeros) 
+        loss = crit(logits, gt_mask.float()) 
 
         optim.zero_grad()
         loss.backward()
         optim.step(reg_params, index, image.size(0))
+
+        if index % 100 == 0:
+            torch.save(reg_params, 'omega_bce.pth')
    
     return reg_params
+
+if __name__ == "__main__":
+    seg_dataset = InriaAerialDataset(
+        "/content/AerialImageDataset", 
+        split="train_cut"
+    )
+    region_selector = dummy
+    augmentator = A.Normalize()
+    iis_dataset = RegionDataset(seg_dataset, region_selector, augmentator)
+    iis_loader = DataLoader(
+        iis_dataset, batch_size=10, num_workers=2, shuffle=True
+    )
+
+    model_path = '/content/coco_lvis_h18_baseline.pth'
+    model = HRNetISModel.load_from_checkpoint(
+        model_path,
+    )
+    model.to('cuda')
+
+    omega = compute_importance_l2(model, iis_loader, device='cuda')
+    torch.save(omega, 'omega_bce.pth')
